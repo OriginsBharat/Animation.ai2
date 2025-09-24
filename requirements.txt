@@ -1,0 +1,7 @@
+requests
+python-dotenv
+Pillow
+moviepy
+google-search-results
+accelerate
+customtkinter
