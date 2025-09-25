@@ -21,8 +21,7 @@ class ProcessingWorker(QObject):
         try:
             # Step 1: Download videos
             self.progress.emit("Downloading videos...")
-            # NOTE: Using test_mode=True due to the ffmpeg issue in the sandbox.
-            downloaded_paths = download_videos(self.video_urls, test_mode=True)
+            downloaded_paths = download_videos(self.video_urls, test_mode=False)
             if not downloaded_paths:
                 self.error.emit("Video download failed. Please check the console.")
                 return

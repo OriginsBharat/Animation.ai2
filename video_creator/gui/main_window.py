@@ -117,7 +117,7 @@ class MainWindow(QWidget):
     def start_processing_pipeline(self):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0) # Indeterminate progress
-        self.find_videos_button.setEnabled(False)
+        self.process_button.setEnabled(False)
 
         self.worker_thread = QThread()
         self.worker = ProcessingWorker(self.selected_video_links)
