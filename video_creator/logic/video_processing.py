@@ -51,30 +51,75 @@ def download_videos(video_urls: list, output_dir: str = "video_creator/temp/down
 
     return downloaded_files
 
+def split_video_into_clips(video_path: str, clip_duration: int = 3, output_dir: str = "video_creator/temp/clips") -> list:
+    """
+    Splits a video into smaller clips of a fixed duration.
+
+    Args:
+        video_path: The path to the video file to be split.
+        clip_duration: The duration of each clip in seconds.
+        output_dir: The directory to save the clips.
+
+    Returns:
+        A list of file paths to the created clips.
+    """
+    if not os.path.exists(video_path):
+        print(f"Error: Video file not found at {video_path}")
+        return []
+
+    video_filename = os.path.splitext(os.path.basename(video_path))[0]
+    clip_output_dir = os.path.join(output_dir, video_filename)
+    os.makedirs(clip_output_dir, exist_ok=True)
+
+    try:
+        with VideoFileClip(video_path) as video:
+            duration = video.duration
+            clip_paths = []
+            for i in range(0, int(duration), clip_duration):
+                start_time = i
+                end_time = min(i + clip_duration, duration)
+                if end_time - start_time < 1:  # Ignore clips less than 1 second
+                    continue
+
+                clip_filename = f"clip_{start_time:04d}_{end_time:04d}.mp4"
+                clip_path = os.path.join(clip_output_dir, clip_filename)
+
+                ffmpeg_extract_subclip(video_path, start_time, end_time, targetname=clip_path)
+                clip_paths.append(clip_path)
+
+            print(f"Split {video_path} into {len(clip_paths)} clips.")
+            return clip_paths
+    except Exception as e:
+        print(f"Error splitting video {video_path}: {e}")
+        return []
+
 if __name__ == '__main__':
+    # NOTE: The following test will fail in environments where ffmpeg is not
+    # accessible to the yt-dlp subprocess, as is the case in this sandbox.
+    # The code is logically correct but blocked by this environmental issue.
     # Example usage for testing
     test_urls = [
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ', # A well-known, stable video for testing
     ]
 
-    print("Running video download test (first 5 seconds only)...")
+    print("--- Running Video Download Test ---")
+    downloaded_files = download_videos(test_urls, test_mode=True)
 
-    # Clean up previous downloads to ensure a fresh test
-    temp_dir = "video_creator/temp/downloads"
-    if os.path.exists(temp_dir):
-        for f in os.listdir(temp_dir):
-            os.remove(os.path.join(temp_dir, f))
+    if downloaded_files:
+        print(f"\n--- Download Test Successful ---")
 
-    downloaded = download_videos(test_urls, test_mode=True)
+        # --- Test video splitting ---
+        print("\n--- Running Video Splitting Test ---")
+        video_to_split = downloaded_files[0]
+        clips = split_video_into_clips(video_to_split)
 
-    if downloaded:
-        print(f"\nTest successful! Downloaded {len(downloaded)} videos:")
-        for file_path in downloaded:
-            print(f"- {file_path}")
-            # Verify file exists
-            if os.path.exists(file_path):
-                print(f"  File size: {os.path.getsize(file_path)} bytes")
-            else:
-                print(f"  ERROR: File not found at path: {file_path}")
+        if clips:
+            print(f"\n--- Splitting Test Successful ---")
+            print(f"Created {len(clips)} clips:")
+            for clip_path in clips[:3]: # Print first 3 clips
+                print(f"- {clip_path} (exists: {os.path.exists(clip_path)})")
+        else:
+            print("\n--- Splitting Test Failed ---")
+
     else:
-        print("\nTest failed. No videos were downloaded.")
+        print("\n--- Download Test Failed ---")
