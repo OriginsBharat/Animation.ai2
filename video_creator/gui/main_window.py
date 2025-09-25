@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 )
 from video_creator.logic.video_search import search_for_videos
 from video_creator.gui.video_selection_window import VideoSelectionWindow
+from video_creator.logic.video_processing import download_videos, split_video_into_clips
+from video_creator.logic.ai_analysis import analyze_clip_emotion
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -12,6 +14,7 @@ class MainWindow(QWidget):
         self.setWindowTitle("AI Video Creator")
         self.setGeometry(100, 100, 800, 600)
         self.selected_video_links = []
+        self.analyzed_clips = []  # This will store {'path': '...', 'emotion': '...'}
         self.init_ui()
 
     def init_ui(self):
@@ -84,12 +87,46 @@ class MainWindow(QWidget):
         if selection_dialog.exec():
             self.selected_video_links = selection_dialog.get_selected_videos()
             if self.selected_video_links:
-                print(f"User selected {len(self.selected_video_links)} videos: {self.selected_video_links}")
-                # Here we would trigger the next step (downloading and processing)
+                self.start_processing_pipeline(self.selected_video_links)
             else:
-                print("User closed the selection window without choosing any videos.")
+                QMessageBox.information(self, "No Selection", "You did not select any videos.")
         else:
             print("User cancelled the video selection.")
+
+    def start_processing_pipeline(self, video_urls):
+        QMessageBox.information(self, "Processing Started", "The application will now download, split, and analyze the selected videos. This may take some time.")
+
+        # Step 1: Download videos
+        # NOTE: Using test_mode=True because of the ffmpeg issue in the sandbox.
+        # This will likely still fail, but it's required to test the pipeline flow.
+        print("\n--- Starting Video Processing Pipeline ---")
+        print("\nStep 1: Downloading videos...")
+        downloaded_paths = download_videos(video_urls, test_mode=True)
+        if not downloaded_paths:
+            QMessageBox.critical(self, "Error", "Video download failed. Please check the console. Cannot proceed.")
+            return
+        print(f"Downloaded {len(downloaded_paths)} video files.")
+
+        # Step 2: Split videos into clips
+        print("\nStep 2: Splitting videos into clips...")
+        all_clips = []
+        for path in downloaded_paths:
+            clips = split_video_into_clips(path)
+            all_clips.extend(clips)
+
+        if not all_clips:
+            QMessageBox.critical(self, "Error", "Video splitting failed. No clips were created. Please check the console.")
+            return
+        print(f"Created a total of {len(all_clips)} clips.")
+
+        # Step 3: Analyze emotions in clips
+        print("\nStep 3: Analyzing emotions in clips...")
+        for clip_path in all_clips:
+            emotion = analyze_clip_emotion(clip_path)
+            self.analyzed_clips.append({'path': clip_path, 'emotion': emotion})
+
+        print(f"Analyzed {len(self.analyzed_clips)} clips successfully.")
+        QMessageBox.information(self, "Processing Complete", f"Successfully analyzed {len(self.analyzed_clips)} clips and they are ready for video assembly.")
 
 
 if __name__ == '__main__':
