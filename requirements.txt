@@ -1,7 +1,11 @@
-requests
-python-dotenv
-Pillow
-moviepy
-google-search-results
-accelerate
-customtkinter
+# This file lists the specific package versions for the AI Video Creator application.
+# Use 'pip install -r requirements.txt' to install them.
+
+PyQt6
+yt-dlp
+youtube-search-python
+moviepy==1.0.3
+opencv-python
+coqui-tts
+fer
+httpx==0.23.0
