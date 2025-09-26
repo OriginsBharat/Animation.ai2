@@ -7,9 +7,9 @@ youtube-search-python
 moviepy==1.0.3
 opencv-python
 coqui-tts==0.22.1
-# Note: fer and tensorflow have been removed to resolve dependency conflicts.
-# Note: coqui-tts pinned to 0.22.1 for wider platform compatibility.
 httpx==0.23.0
 torch
 torchaudio
 transformers
+gruut
+# Note: 'fer' and 'tensorflow' have been removed to resolve dependency conflicts.
