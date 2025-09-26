@@ -6,7 +6,9 @@ yt-dlp
 youtube-search-python
 moviepy==1.0.3
 opencv-python
-coqui-tts
-fer
+coqui-tts==0.22.0
 httpx==0.23.0
-tensorflow==2.10.0
+torch
+torchaudio
+transformers
+# Note: 'fer' and 'tensorflow' have been removed to resolve dependency conflicts.
