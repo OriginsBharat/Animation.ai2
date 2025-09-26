@@ -1,6 +1,7 @@
 import os
 import yt_dlp
-from moviepy.editor import VideoFileClip, ffmpeg_extract_subclip
+from moviepy.editor import VideoFileClip
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 import imageio_ffmpeg
 
 def download_videos(video_urls: list, output_dir: str = "video_creator/temp/downloads", test_mode: bool = False) -> list:
@@ -16,7 +17,6 @@ def download_videos(video_urls: list, output_dir: str = "video_creator/temp/down
     }
 
     if test_mode:
-        # Note: This may fail in some environments if ffmpeg is not in the system PATH
         ydl_opts['download_ranges'] = lambda info_dict, ydl: [{'start_time': 0, 'end_time': 5}]
 
     downloaded_files = []
