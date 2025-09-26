@@ -9,4 +9,4 @@ opencv-python
 coqui-tts
 fer
 httpx==0.23.0
-tensorflow
+tensorflow==2.10.0
