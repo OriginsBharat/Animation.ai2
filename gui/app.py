@@ -1,211 +1,292 @@
 import customtkinter
 from tkinter import filedialog
-from api.image_search import search_for_character_images
-from api.animation import generate_keyframe, interpolate_frames
-from video.processing import create_animation_video
-from PIL import Image
-import requests
-from io import BytesIO
 import threading
+import os
+import sys
+import subprocess
+import shutil
+
+# Import the core logic functions from the api modules
+from api.video_search import find_and_extract_expressive_clips
+from api.audio import create_final_audio, OUTPUTS_PATH as AUDIO_OUTPUT_PATH
+from api.video_assembly import assemble_video
 
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("AI Puppet Animator")
+        self.title("AI Anime Dubbing App")
         self.geometry("1280x720")
 
-        self.reference_image = None
-        self.animation_script = []
-        self.background_image_path = None
-        self.audio_path = None
+        # --- Initialize App State Variables ---
+        self.voice_sample_path = None
+        self.background_music_path = None
+        self.script_text = ""
+        self.selected_clips = []
+        self.clip_buttons = {}
+        self.final_video_path = None
 
-        # Main layout
+        # --- Main Layout ---
         self.grid_columnconfigure(0, weight=1) # Control panel
         self.grid_columnconfigure(1, weight=3) # Main content area
         self.grid_rowconfigure(0, weight=1)
 
+        # ============================
         # === Left Control Panel ===
+        # ============================
         self.control_frame = customtkinter.CTkScrollableFrame(self, width=350, corner_radius=0)
         self.control_frame.grid(row=0, column=0, sticky="nsw", padx=(0, 2), pady=0)
+        self.control_frame.grid_columnconfigure(0, weight=1)
 
-        # --- Image Search Section ---
-        self.search_label = customtkinter.CTkLabel(self.control_frame, text="1. Find Character", font=customtkinter.CTkFont(size=16, weight="bold"))
-        self.search_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        # --- 1. Inputs Section ---
+        self.inputs_label = customtkinter.CTkLabel(self.control_frame, text="1. Add Your Inputs", font=customtkinter.CTkFont(size=16, weight="bold"))
+        self.inputs_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+
+        self.voice_button = customtkinter.CTkButton(self.control_frame, text="Upload Voice Sample", command=self.upload_voice_sample)
+        self.voice_button.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.voice_label = customtkinter.CTkLabel(self.control_frame, text="Voice: None", text_color="gray")
+        self.voice_label.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        self.music_button = customtkinter.CTkButton(self.control_frame, text="Upload Background Music", command=self.select_background_music)
+        self.music_button.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.music_label = customtkinter.CTkLabel(self.control_frame, text="Music: None", text_color="gray")
+        self.music_label.grid(row=4, column=0, padx=20, pady=(0, 5), sticky="w")
+
+        self.trim_label = customtkinter.CTkLabel(self.control_frame, text="Trim Music (start/end in sec):")
+        self.trim_label.grid(row=5, column=0, padx=20, pady=(5,0), sticky="w")
+        self.trim_frame = customtkinter.CTkFrame(self.control_frame, fg_color="transparent")
+        self.trim_frame.grid(row=6, column=0, padx=20, pady=(0,10), sticky="ew")
+        self.trim_frame.column_configure((0,1), weight=1)
+        self.trim_start_entry = customtkinter.CTkEntry(self.trim_frame, placeholder_text="0")
+        self.trim_start_entry.grid(row=0, column=0, padx=(0,5), sticky="ew")
+        self.trim_end_entry = customtkinter.CTkEntry(self.trim_frame, placeholder_text="end")
+        self.trim_end_entry.grid(row=0, column=1, padx=(5,0), sticky="ew")
+
+        self.script_label = customtkinter.CTkLabel(self.control_frame, text="Narration Script:")
+        self.script_label.grid(row=7, column=0, padx=20, pady=(10, 5), sticky="w")
+        self.script_textbox = customtkinter.CTkTextbox(self.control_frame, height=200)
+        self.script_textbox.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.script_textbox.insert("0.0", "Enter your script here.\n\nUse (parentheses for emotions) and ALL CAPS for emphasis.")
+
+        # --- 2. Video Clip Search ---
+        self.search_label = customtkinter.CTkLabel(self.control_frame, text="2. Find Video Clips", font=customtkinter.CTkFont(size=16, weight="bold"))
+        self.search_label.grid(row=9, column=0, padx=20, pady=(20, 10), sticky="w")
         self.search_entry = customtkinter.CTkEntry(self.control_frame, placeholder_text="Enter character name...")
-        self.search_entry.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-        self.search_button = customtkinter.CTkButton(self.control_frame, text="Search for Images", command=self.on_search_button_click)
-        self.search_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
-        self.selected_image_label = customtkinter.CTkLabel(self.control_frame, text="Selected Reference:")
-        self.selected_image_label.grid(row=3, column=0, padx=20, pady=(10, 5), sticky="w")
-        self.selected_image_display = customtkinter.CTkLabel(self.control_frame, text="None", width=250, height=250)
-        self.selected_image_display.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
+        self.search_entry.grid(row=10, column=0, padx=20, pady=10, sticky="ew")
+        self.search_button = customtkinter.CTkButton(self.control_frame, text="Search for Clips", command=self.on_search_button_click)
+        self.search_button.grid(row=11, column=0, padx=20, pady=10, sticky="ew")
 
-        # --- Animation Script Section ---
-        self.script_label = customtkinter.CTkLabel(self.control_frame, text="2. Create Animation Script", font=customtkinter.CTkFont(size=16, weight="bold"))
-        self.script_label.grid(row=5, column=0, padx=20, pady=(20, 10), sticky="w")
-        self.pose_prompt_entry = customtkinter.CTkEntry(self.control_frame, placeholder_text="Describe the pose...")
-        self.pose_prompt_entry.grid(row=6, column=0, padx=20, pady=5, sticky="ew")
-        self.style_menu = customtkinter.CTkOptionMenu(self.control_frame, values=["detailed", "chibi"])
-        self.style_menu.grid(row=7, column=0, padx=20, pady=5, sticky="ew")
-        self.duration_entry = customtkinter.CTkEntry(self.control_frame, placeholder_text="Duration (s)")
-        self.duration_entry.grid(row=8, column=0, padx=20, pady=5, sticky="ew")
-        self.add_pose_button = customtkinter.CTkButton(self.control_frame, text="Add Pose to Script", command=self.add_pose_to_script)
-        self.add_pose_button.grid(row=9, column=0, padx=20, pady=10, sticky="ew")
-        self.script_display = customtkinter.CTkTextbox(self.control_frame, height=150)
-        self.script_display.grid(row=10, column=0, padx=20, pady=10, sticky="ew")
-        self.script_display.insert("0.0", "Animation Script will appear here...")
-        self.script_display.configure(state="disabled")
+        # --- 3. Generate Video ---
+        self.render_label = customtkinter.CTkLabel(self.control_frame, text="3. Generate Video", font=customtkinter.CTkFont(size=16, weight="bold"))
+        self.render_label.grid(row=12, column=0, padx=20, pady=(20, 10), sticky="w")
+        self.render_button = customtkinter.CTkButton(self.control_frame, text="Generate Video", command=self.start_generation_thread)
+        self.render_button.grid(row=13, column=0, padx=20, pady=10, sticky="ew")
+        self.status_label = customtkinter.CTkLabel(self.control_frame, text="Status: Idle", anchor="w")
+        self.status_label.grid(row=14, column=0, padx=20, pady=10, sticky="ew")
+        self.progressbar = customtkinter.CTkProgressBar(self.control_frame)
+        self.progressbar.grid(row=15, column=0, padx=20, pady=(0,10), sticky="ew")
+        self.progressbar.set(0)
 
-        # --- Assets Section ---
-        self.assets_label = customtkinter.CTkLabel(self.control_frame, text="3. Add Assets (Optional)", font=customtkinter.CTkFont(size=16, weight="bold"))
-        self.assets_label.grid(row=11, column=0, padx=20, pady=(20, 10), sticky="w")
-        self.audio_button = customtkinter.CTkButton(self.control_frame, text="Select Audio File", command=self.select_audio_file)
-        self.audio_button.grid(row=12, column=0, padx=20, pady=10, sticky="ew")
-        self.audio_label = customtkinter.CTkLabel(self.control_frame, text="Audio: None")
-        self.audio_label.grid(row=13, column=0, padx=20, pady=5, sticky="w")
-        self.lyrics_label = customtkinter.CTkLabel(self.control_frame, text="Lyrics (format: start_time,text)")
-        self.lyrics_label.grid(row=14, column=0, padx=20, pady=(10, 5), sticky="w")
-        self.lyrics_textbox = customtkinter.CTkTextbox(self.control_frame, height=100)
-        self.lyrics_textbox.grid(row=15, column=0, padx=20, pady=5, sticky="ew")
-        self.lyrics_textbox.insert("0.0", "0.5,Hello\n2.0,World!")
-
-
-        # --- Render Section ---
-        self.render_label = customtkinter.CTkLabel(self.control_frame, text="4. Generate Video", font=customtkinter.CTkFont(size=16, weight="bold"))
-        self.render_label.grid(row=16, column=0, padx=20, pady=(20, 10), sticky="w")
-        self.render_button = customtkinter.CTkButton(self.control_frame, text="Generate Animation", command=self.start_generation_thread)
-        self.render_button.grid(row=17, column=0, padx=20, pady=10, sticky="ew")
-        self.status_label = customtkinter.CTkLabel(self.control_frame, text="Status: Idle")
-        self.status_label.grid(row=18, column=0, padx=20, pady=10, sticky="w")
-
-
+        # ============================
         # === Right Content Area ===
+        # ============================
         self.content_frame = customtkinter.CTkFrame(self, corner_radius=0)
-        self.content_frame.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
-        self.content_frame.grid_rowconfigure(1, weight=1)
+        self.content_frame.grid(row=0, column=1, sticky="nsew")
+        self.content_frame.grid_rowconfigure(0, weight=1)
         self.content_frame.grid_columnconfigure(0, weight=1)
-        self.results_label = customtkinter.CTkLabel(self.content_frame, text="Search Results / Video Preview", font=customtkinter.CTkFont(size=16, weight="bold"))
-        self.results_label.grid(row=0, column=0, pady=(20,10))
-        self.results_frame = customtkinter.CTkScrollableFrame(self.content_frame, label_text="Click an image to select it as the reference")
-        self.results_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
 
-    def select_audio_file(self):
-        self.audio_path = filedialog.askopenfilename(title="Select Audio File", filetypes=(("Audio Files", "*.mp3 *.wav"), ("All files", "*.*")))
-        if self.audio_path:
-            filename = self.audio_path.split('/')[-1]
-            self.audio_label.configure(text=f"Audio: {filename}")
-            print(f"Selected audio file: {self.audio_path}")
+        self.tab_view = customtkinter.CTkTabview(self.content_frame)
+        self.tab_view.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.tab_view.add("Clip Gallery")
+        self.tab_view.add("Preview & Edit")
 
-    def parse_lyrics(self):
-        lyrics_text = self.lyrics_textbox.get("1.0", "end-1c")
-        overlays = []
-        total_script_duration = sum(pose['duration'] for pose in self.animation_script) if self.animation_script else 0
+        # --- Clip Gallery Tab ---
+        self.gallery_frame = customtkinter.CTkScrollableFrame(self.tab_view.tab("Clip Gallery"), label_text="Search results will appear here. Click to select clips.")
+        self.gallery_frame.pack(expand=True, fill="both", padx=5, pady=5)
 
-        for line in lyrics_text.split('\n'):
-            if ',' in line:
-                try:
-                    time_str, text = line.split(',', 1)
-                    start_time = float(time_str)
-                    # Simple heuristic for duration: last until next lyric or for 2s
-                    overlays.append({'text': text.strip(), 'start': start_time, 'duration': 2})
-                except ValueError:
-                    print(f"Could not parse lyric line: {line}")
-        # Adjust durations
-        for i in range(len(overlays) - 1):
-            overlays[i]['duration'] = overlays[i+1]['start'] - overlays[i]['start']
-        if overlays and total_script_duration > 0 and overlays[-1]['start'] + overlays[-1]['duration'] > total_script_duration:
-            overlays[-1]['duration'] = total_script_duration - overlays[-1]['start']
-        return overlays
+        # --- Preview & Edit Tab ---
+        self.preview_frame = customtkinter.CTkFrame(self.tab_view.tab("Preview & Edit"), fg_color="transparent")
+        self.preview_frame.pack(expand=True, fill="both", padx=10, pady=10)
+        self.preview_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        self.preview_frame.grid_rowconfigure(1, weight=1)
 
-    def add_pose_to_script(self):
-        prompt = self.pose_prompt_entry.get()
-        style = self.style_menu.get()
-        duration_str = self.duration_entry.get()
-        if not prompt or not duration_str: return
-        try:
-            duration = float(duration_str)
-        except ValueError: return
-        self.animation_script.append({"prompt": prompt, "style": style, "duration": duration})
-        self.update_script_display()
-        self.pose_prompt_entry.delete(0, "end")
-        self.duration_entry.delete(0, "end")
+        self.preview_label = customtkinter.CTkLabel(self.preview_frame, text="Video preview will be available here after generation.", font=customtkinter.CTkFont(size=14))
+        self.preview_label.grid(row=0, column=0, columnspan=3, padx=10, pady=10)
 
-    def update_script_display(self):
-        self.script_display.configure(state="normal")
-        self.script_display.delete("1.0", "end")
-        if not self.animation_script:
-            self.script_display.insert("0.0", "Animation Script will appear here...")
-        else:
-            text = ""
-            current_time = 0.0
-            for i, pose in enumerate(self.animation_script):
-                text += f"{i+1}. [{current_time:.1f}s-{(current_time + pose['duration']):.1f}s] ({pose['style']}): {pose['prompt']}\n"
-                current_time += pose['duration']
-            self.script_display.insert("0.0", text)
-        self.script_display.configure(state="disabled")
+        self.subtitle_editor = customtkinter.CTkTextbox(self.preview_frame, height=200, state="disabled")
+        self.subtitle_editor.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
 
-    def start_generation_thread(self):
-        self.status_label.configure(text="Status: Generating...")
-        threading.Thread(target=self.run_animation_generation, daemon=True).start()
+        self.play_button = customtkinter.CTkButton(self.preview_frame, text="Play Video", command=self.play_final_video, state="disabled")
+        self.play_button.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
 
-    def run_animation_generation(self):
-        if not self.animation_script:
-            print("Cannot generate: Animation script is empty.")
-            self.status_label.configure(text="Status: Error - Script is empty")
-            return
+        self.rerender_button = customtkinter.CTkButton(self.preview_frame, text="Update Subtitles", command=self.rerender_video, state="disabled")
+        self.rerender_button.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
-        # --- This is the main pipeline ---
-        self.status_label.configure(text="Status: Generating keyframes...")
-        keyframe_images = [generate_keyframe(p['prompt'], style_prompt=p['style']) for p in self.animation_script]
-        if not all(keyframe_images):
-            self.status_label.configure(text="Status: Error - Failed to generate keyframes")
-            return
+        self.save_as_button = customtkinter.CTkButton(self.preview_frame, text="Save As...", command=self.save_as, state="disabled")
+        self.save_as_button.grid(row=2, column=2, padx=10, pady=10, sticky="ew")
 
-        self.status_label.configure(text="Status: Interpolating frames...")
-        final_frames = []
-        fps = 24
-        for i in range(len(keyframe_images) - 1):
-            num_steps = int(self.animation_script[i]['duration'] * fps)
-            interpolated = interpolate_frames(keyframe_images[i], keyframe_images[i+1], num_steps)
-            final_frames.extend(interpolated)
-        final_frames.append(keyframe_images[-1]) # Add last frame
+    # --- GUI Interaction Methods ---
 
-        self.status_label.configure(text="Status: Parsing lyrics...")
-        text_overlays = self.parse_lyrics()
+    def upload_voice_sample(self):
+        path = filedialog.askopenfilename(title="Select Voice Sample", filetypes=(("Audio Files", "*.mp3 *.wav"), ("All files", "*.*")))
+        if path:
+            self.voice_sample_path = path
+            self.voice_label.configure(text=f"Voice: {os.path.basename(path)}", text_color="white")
 
-        self.status_label.configure(text="Status: Creating video file...")
-        create_animation_video(final_frames, "animation_output.mp4", fps, self.audio_path, text_overlays)
-        self.status_label.configure(text="Status: Done! Saved to animation_output.mp4")
+    def select_background_music(self):
+        path = filedialog.askopenfilename(title="Select Background Music", filetypes=(("Audio Files", "*.mp3 *.wav"), ("All files", "*.*")))
+        if path:
+            self.background_music_path = path
+            self.music_label.configure(text=f"Music: {os.path.basename(path)}", text_color="white")
 
-    # --- Methods from previous step (need to be included in the final file) ---
     def on_search_button_click(self):
         query = self.search_entry.get()
-        if not query: return
-        self.status_label.configure(text=f"Status: Searching for {query}...")
-        for widget in self.results_frame.winfo_children(): widget.destroy()
-        try:
-            image_urls = search_for_character_images(query)
-            if not image_urls:
-                customtkinter.CTkLabel(self.results_frame, text=f"No results found for '{query}'").pack(pady=10)
-                self.status_label.configure(text="Status: No results found.")
-                return
-            self.status_label.configure(text="Status: Displaying results...")
-            for i, url in enumerate(image_urls[:12]): # limit results
-                response = requests.get(url, timeout=10)
-                pil_image = Image.open(BytesIO(response.content))
-                ctk_image = customtkinter.CTkImage(pil_image, size=(120, 120))
-                img_button = customtkinter.CTkButton(self.results_frame, image=ctk_image, text="", width=120, height=120, command=lambda img=pil_image: self.select_image(img))
-                img_button.pack(side="left", padx=5, pady=5, expand=True)
-            self.status_label.configure(text="Status: Idle")
-        except Exception as e:
-            self.status_label.configure(text=f"Status: Error - {e}")
+        if not query:
+            self.update_status("Status: Please enter a character name.")
+            return
 
-    def select_image(self, image: Image):
-        self.reference_image = image
-        display_image = customtkinter.CTkImage(image, size=(250, 250))
-        self.selected_image_display.configure(image=display_image, text="")
-        self.status_label.configure(text="Status: Reference image selected.")
+        self.update_status(f"Status: Searching for '{query}'...")
+        self.progressbar.start()
+        for widget in self.gallery_frame.winfo_children(): widget.destroy()
+        self.selected_clips.clear()
+        self.clip_buttons.clear()
+        threading.Thread(target=self.run_clip_search, args=(query,), daemon=True).start()
+
+    def run_clip_search(self, query):
+        try:
+            clip_paths = find_and_extract_expressive_clips(query)
+            self.after(0, self.update_gallery, clip_paths)
+        except Exception as e:
+            self.after(0, self.update_status, f"Status: Error - {e}")
+
+    def update_gallery(self, clip_paths):
+        self.progressbar.stop()
+        if not clip_paths:
+            self.update_status(f"Status: No clips found for '{self.search_entry.get()}'.")
+            return
+        self.update_status(f"Status: Found {len(clip_paths)} clips. Click to select.")
+        for clip_path in clip_paths:
+            thumbnail_path = self.generate_thumbnail(clip_path)
+            if thumbnail_path:
+                pil_image = Image.open(thumbnail_path)
+                ctk_image = customtkinter.CTkImage(pil_image, size=(160, 90))
+                btn = customtkinter.CTkButton(self.gallery_frame, image=ctk_image, text="", width=160, height=90, fg_color="transparent", border_width=2, border_color="gray", command=lambda p=clip_path: self.toggle_clip_selection(p))
+                btn.pack(side="left", padx=10, pady=10, expand=True)
+                self.clip_buttons[clip_path] = btn
+
+    def generate_thumbnail(self, video_path, thumb_time=0.5):
+        try:
+            from moviepy.editor import VideoFileClip
+            thumbnail_dir = "thumbnails"
+            os.makedirs(thumbnail_dir, exist_ok=True)
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            thumbnail_path = os.path.join(thumbnail_dir, f"{base_name}.jpg")
+            if not os.path.exists(thumbnail_path):
+                with VideoFileClip(video_path) as clip:
+                    clip.save_frame(thumbnail_path, t=min(thumb_time, clip.duration - 0.1))
+            return thumbnail_path
+        except Exception as e:
+            print(f"Error generating thumbnail for {video_path}: {e}")
+            return None
+
+    def toggle_clip_selection(self, clip_path):
+        if clip_path in self.selected_clips:
+            self.selected_clips.remove(clip_path)
+            self.clip_buttons[clip_path].configure(border_color="gray")
+        else:
+            self.selected_clips.append(clip_path)
+            self.clip_buttons[clip_path].configure(border_color="#3498db")
+
+    def start_generation_thread(self):
+        self.update_status("Status: Starting generation...")
+        self.progressbar.set(0)
+        threading.Thread(target=self.run_video_generation, daemon=True).start()
+
+    def run_video_generation(self):
+        self.script_text = self.script_textbox.get("1.0", "end-1c")
+        if not all([self.voice_sample_path, self.script_text, self.selected_clips]):
+            self.after(0, self.update_status, "Status: Error - Missing voice, script, or selected clips.")
+            return
+
+        trim_start_str = self.trim_start_entry.get() or "0"
+        trim_end_str = self.trim_end_entry.get() or "None"
+        try:
+            trim_start = float(trim_start_str)
+            trim_end = float(trim_end_str) if trim_end_str.lower() != "none" else None
+        except ValueError:
+            self.after(0, self.update_status, "Status: Error - Invalid trim values.")
+            return
+
+        self.after(0, lambda: self.progressbar.set(0.1))
+        self.after(0, self.update_status, "Status: Generating audio...")
+        final_audio_path = create_final_audio(self.script_text, self.voice_sample_path, self.background_music_path, trim_start, trim_end)
+        if not final_audio_path:
+            self.after(0, self.update_status, "Status: Error - Audio generation failed.")
+            return
+
+        self.after(0, lambda: self.progressbar.set(0.5))
+        self.after(0, self.update_status, "Status: Audio complete. Assembling video...")
+        self.final_video_path = assemble_video(self.selected_clips, final_audio_path, self.script_text)
+        if not self.final_video_path:
+            self.after(0, self.update_status, "Status: Error - Video assembly failed.")
+            return
+
+        self.after(0, lambda: self.progressbar.set(1))
+        self.after(0, self.update_status, f"Status: Done! Video saved to {self.final_video_path}")
+        self.after(0, self.setup_preview_tab, self.script_text)
+
+    def setup_preview_tab(self, script_to_edit):
+        self.preview_label.configure(text=f"Video generated! Edit subtitles below or save.")
+        self.subtitle_editor.configure(state="normal")
+        self.subtitle_editor.delete("1.0", "end")
+        self.subtitle_editor.insert("1.0", script_to_edit)
+        for btn in [self.play_button, self.rerender_button, self.save_as_button]:
+            btn.configure(state="normal")
+        self.tab_view.set("Preview & Edit")
+
+    def play_final_video(self):
+        if not self.final_video_path or not os.path.exists(self.final_video_path):
+            self.update_status("Status: Error - Final video not found.")
+            return
+        if sys.platform == "win32": os.startfile(self.final_video_path)
+        elif sys.platform == "darwin": subprocess.Popen(["open", self.final_video_path])
+        else: subprocess.Popen(["xdg-open", self.final_video_path])
+
+    def rerender_video(self):
+        new_script = self.subtitle_editor.get("1.0", "end-1c")
+        final_audio_path = os.path.join(AUDIO_OUTPUT_PATH, "final_audio.mp3")
+        if not new_script or not os.path.exists(final_audio_path):
+            self.update_status("Status: Error - Missing script or audio for re-render.")
+            return
+        self.update_status("Status: Re-rendering with new subtitles...")
+        self.progressbar.start()
+        threading.Thread(target=self.run_rerender_thread, args=(new_script, final_audio_path), daemon=True).start()
+
+    def run_rerender_thread(self, script, audio_path):
+        self.final_video_path = assemble_video(self.selected_clips, audio_path, script)
+        self.progressbar.stop()
+        if not self.final_video_path:
+            self.after(0, self.update_status, "Status: Error - Failed to re-render video.")
+        else:
+            self.after(0, self.update_status, "Status: Re-render complete!")
+
+    def save_as(self):
+        if not self.final_video_path or not os.path.exists(self.final_video_path):
+            self.update_status("Status: Error - No final video to save.")
+            return
+        save_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 Video", "*.mp4")], title="Save Video As...")
+        if save_path:
+            try:
+                self.update_status(f"Status: Saving video to {save_path}...")
+                shutil.copy(self.final_video_path, save_path)
+                self.update_status(f"Status: Video successfully saved!")
+            except Exception as e:
+                self.update_status(f"Status: Error saving file - {e}")
+
+    def update_status(self, text):
+        self.status_label.configure(text=text)
+        if self.progressbar.is_animating():
+            self.progressbar.stop()
 
 if __name__ == "__main__":
     app = App()

@@ -5,3 +5,7 @@ moviepy
 google-search-results
 accelerate
 customtkinter
+yt-dlp
+numpy
+coqui-tts
+pydub
