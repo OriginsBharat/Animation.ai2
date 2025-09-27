@@ -12,4 +12,7 @@ torch
 torchaudio
 transformers
 gruut
+# Pinning numba and llvmlite to stable versions to fix Windows DLL load errors
+numba==0.55.2
+llvmlite==0.38.1
 # Note: 'fer' and 'tensorflow' have been removed to resolve dependency conflicts.
