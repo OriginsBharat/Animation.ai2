@@ -6,9 +6,6 @@ google-search-results
 accelerate
 customtkinter
 yt-dlp
-numpy==1.23.5
-coqui-tts==0.22.0
+numpy
+coqui-tts
 pydub
-pandas<2.0
-gruut==2.2.3
-protobuf==3.20.3
