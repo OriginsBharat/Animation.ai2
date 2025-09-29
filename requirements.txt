@@ -1,7 +1,7 @@
 requests
 python-dotenv
 Pillow
-moviepy
+moviepy==1.0.3
 google-search-results
 accelerate
 customtkinter
