@@ -56,7 +56,7 @@ class App(customtkinter.CTk):
         self.trim_label.grid(row=5, column=0, padx=20, pady=(5,0), sticky="w")
         self.trim_frame = customtkinter.CTkFrame(self.control_frame, fg_color="transparent")
         self.trim_frame.grid(row=6, column=0, padx=20, pady=(0,10), sticky="ew")
-        self.trim_frame.column_configure((0,1), weight=1)
+        self.trim_frame.columnconfigure((0,1), weight=1)
         self.trim_start_entry = customtkinter.CTkEntry(self.trim_frame, placeholder_text="0")
         self.trim_start_entry.grid(row=0, column=0, padx=(0,5), sticky="ew")
         self.trim_end_entry = customtkinter.CTkEntry(self.trim_frame, placeholder_text="end")
