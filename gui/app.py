@@ -285,7 +285,7 @@ class App(customtkinter.CTk):
 
     def update_status(self, text):
         self.status_label.configure(text=text)
-    self.progressbar.stop()
+        self.progressbar.stop()
 
 if __name__ == "__main__":
     app = App()
